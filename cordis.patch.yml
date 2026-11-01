@@ -1,0 +1,6 @@
+# 酒馆插件：独立数据目录、独立 tavern-roleplay Agent、无工具。
+- insert:
+    - id: tavern
+      name: hdsh-tavern
+      config:
+        enabled: true
