@@ -9,32 +9,155 @@
 - API：`/tavern/*`，不复用 `/companion/*`。
 - 人格：角色卡和世界书只作为上下文，不是可执行指令。
 
-## P0 功能
+## 0.4.1 已实现
 
-- 角色卡：列表、创建、编辑、删除
-- 导入：JSON（V1/V2/V3）、PNG（tEXt `ccv3`/`chara`）
-- 角色卡内嵌 `character_book` 自动转世界书
-- 世界书：列表、创建、条目增删改、关键词/常驻/顺序
-- 单角色聊天：开场白、消息持久化、模型生成
-- 世界书注入：最近消息关键词扫描、常驻、顺序、字符预算
-- App：版本号 10 连击解锁，会话页鲸鱼娘旁入口
+- 角色卡：列表、创建、编辑、删除；JSON（V1/V2/V3）、PNG（tEXt `ccv3`/`chara`）、CHARX/BYAF（ZIP）
+- 角色卡内嵌 `character_book` 自动转世界书并随角色删除
+- 世界书：列表、创建、条目增删改、导入
+- 世界书触发（对齐 SillyTavern）：
+  - 字面 key 与正则 key（`/pattern/flags`）
+  - `constant`、主/次级关键词、`selectiveLogic`（AND ANY / NOT ALL / NOT ANY / AND ALL）
+  - `position` 0/1 角色前/后、2/3 作者注上/下、4 @D 深度、5/6 示例前/后、7 Outlet；`@D` 带 `role`
+  - 递归：`excludeRecursion` / `preventRecursion` / `delayUntilRecursion`
+  - 分组：逗号分隔多组、`groupWeight` 加权随机、`prioritizeInclusion` 按 order
+  - 定时效果：`sticky` / `cooldown` / `delay`，按消息数，不刷新已有计时
+  - Min Activations / Max Depth：关键词命中不足时向更早历史继续扫描
+  - Character Filter：按角色名/标签过滤，支持排除模式
+  - Generation Triggers：`normal` / `continue` / `impersonate` / `swipe` / `regenerate` / `quiet`
+  - Outlet：`position = 7` + `outletName`，用 `{{outlet::Name}}` 取用
+  - Automation ID：条目激活时执行 `status_schema.automations` 声明的动作（addvar / inject / script）
+  - 扫描默认带说话人前缀（`includeNames`），可用角色名触发
+  - token/字符预算；同一位置内 `order` 越大越靠后
+- 变量：世界书 / 角色扩展声明 `variables`；状态栏 `好感度: +3` 自动累加、clamp、映射阶段；`{{getvar::key}}` 注入；按 chat 持久化
+- Prompt：真正的 `messages` 数组（system / user / assistant）；顺序可按 App 配置；缺项自动补齐；历史后指令置尾；支持 `extensions.depth_prompt`（按深度/角色）
+- 生成：优先 `ctx.llm.stream(messages[])`；没有 llm 服务时退回隐藏 Agent 的 system+user 兼容路径
+- 状态栏：通用解析 `<StatusBlock>` / `<Status>` / `<State>` / `【状态栏】` / `<UpdateVariable>` / `<Options>`
+  - 默认只提取 `标签: 值`，不翻译、不猜语义、不认具体卡片
+  - 卡级规则 `status_schema`（角色 `extensions.hdsh_status` 或世界书同名条目）可配置忽略字段、值替换、变量、进度/阶段、automations
+- 设置：世界书预算、历史条数、回复 Token、扫描深度、递归层数、最少激活数、最大扫描深度、扫描带角色名、上下文总 Token、Persona、Prompt 顺序
+- 单角色聊天：开场白、消息持久化、模型生成、流式（SSE）、重新生成
+- **Swipe**：一条回复保存多个候选（`swipes[]` + `activeSwipe`），可追加/切换/删除；`<Options>` 只作为快捷回复，不再当 swipe
+- **Continue**：从最后一条角色回复继续写，追加到同一条消息
+- **Impersonate**：让模型以用户身份写一句，作为 user 消息插入
+- **STscript 子集**：`/pass` `/echo` `/setvar` `/addvar` `/incvar` `/decvar` `/getvar` `/flushvar` `/inject`，供 Automation 与 `/script` 使用
+- 群聊：多角色、`speaker` 记录、群聊 Prompt（**暂停投入**，仅保留可用实现）
+- 消息：编辑、删除、从消息创建分支（保留群聊身份与状态栏/媒体元数据）、导出 Markdown/JSON
+- 媒体：生图、语音；支持标签触发、明确要求触发和自然对话感知（`off` / `explicit` / `auto`）；`/tavern/media/*` 免 Cookie（见下）
+- 数据：`<DSH_HOME>/tavern/data.json` 原子写；损坏文件自动备份为 `data.json.corrupt-*`；支持 JSON 备份（角色卡 / 聊天 / 世界书 / 设置）
+- 同一聊天写入串行化，避免并发请求交错
 
-## P1 功能
+## 与 SillyTavern 仍有的差异
 
-- 世界书递归、深度注入、顺序/位置、分组竞争、概率、sticky/cooldown/delay
-- Prompt 检查器：激活条目、System、User、预算截断
-- 导入预览：解析角色卡与内嵌世界书后再确认导入
-- 角色卡：备用开场白、作者备注、头像更换
-- 聊天：消息编辑/删除/重新生成、从消息创建分支、导出 Markdown
-- App：滑动玻璃胶囊 Tabbar、四 Tab 微信式布局、User 名称/头像
+- **Prompt**：有 `ctx.llm` 时是真正的 messages 数组；没有 `llm` 服务的旧版 DSH 会退回单条 user 的 Agent 路径。
+- **STscript 只有子集**：没有 `/if` / `/while` / `/gen` / `/send` / `/cut`、Quick Replies 面板和完整脚本运行时。
+- **生成参数**：支持 `maxTokens` / `temperature` / `stop`；top_p / top_k / penalties / seed 仍受 DSH LLM 接口限制。
+- 数据仍是单个 `data.json` 全量重写，不是每 chat JSONL。
+- 角色卡的 `system_prompt` 作为附加 section，而不是覆盖主提示词。
+- 条目的 `scanDepth = 0` 表示「用全局扫描深度」，而 ST 的 0 表示「不做关键词扫描」。
+- 世界书没有向量匹配；`useGroupScoring`（按命中 key 数决定分组胜者）未实现。
+- 群聊不是回合制：一次调用让模型写多人，暂不做静音/回复顺序。
 
-## 未实现（P2）
+## 状态栏规则（status_schema）
 
-- CHARX/BYAF、PNG 导出
-- 群聊、Persona、swipe
-- 流式输出
-- Prompt Manager 可视化自定义排序、精确 token 计数
-- 世界书向量检索/TTS
+默认解析是通用的：任何 `标签: 值` 都会进入 `statusLines`，值保持原样。需要“截取数值 / 忽略字段 / 累计进度并显示阶段名”时，在角色卡里加：
+
+```json
+"extensions": {
+  "hdsh_status": {
+    "ignoreLabels": ["Time", "History check", "Dramatic updates"],
+    "valueRules": [
+      { "label": "攻略阶段", "pattern": ".*?([+-]\\d+(?:\\.\\d+)?).*", "replacement": "$1" }
+    ],
+    "progress": {
+      "label": "攻略阶段",
+      "initial": 0,
+      "stages": [
+        { "name": "陌生", "min": 0 },
+        { "name": "熟悉", "min": 10 },
+        { "name": "亲近", "min": 20 }
+      ]
+    }
+  }
+}
+```
+
+也可以把同样的 JSON 放进世界书条目：`comment` 或第一个 key 为 `status_schema`，内容为 JSON。
+`progress.stages` 留空时，会尝试从世界书的 `stage_names_overview` / `category:` 自动推导阶段。
+如果旧卡把状态写在 `<Analysis>` 里，加 `"parseAnalysis": true` 才会解析该块（默认只剥离）。
+没有 schema 时不会做任何卡片专属翻译——这是和 ST 一致的行为（状态语义由卡/脚本负责）。
+
+## 变量（variables）
+
+世界书里可以声明变量，状态栏的 `标签: 值` 会自动映射到变量：
+
+```json
+{
+  "variables": {
+    "affection": {
+      "label": "好感度",
+      "aliases": ["好感"],
+      "type": "number",
+      "initial": 0,
+      "min": 0,
+      "max": 100,
+      "unit": "",
+      "stages": [
+        { "name": "陌生", "min": 0 },
+        { "name": "熟悉", "min": 10 },
+        { "name": "亲近", "min": 20 }
+      ]
+    },
+    "location": { "label": "地点", "type": "string", "initial": "家" }
+  }
+}
+```
+
+声明位置（后者覆盖前者）：
+
+1. 世界书条目：`comment` 或第一个 key 为 `variables` / `variable_schema` / `变量`；
+2. 角色扩展 `extensions.hdsh_status.variables`；
+3. `status_schema.progress` 自动合成一个进度变量（阶段为空时从 `stage_names_overview` 推导）。
+
+变量条目内容可以是 JSON，也可以是简单行（`好感度: 0 (0-100)`，括号里是 min~max）。
+
+状态栏更新规则：
+
+- `好感度: +3` → 累加；
+- `好感度: 12` → 设为 12；
+- `好感度: 熟悉` → 映射到该阶段的 `min`；
+- 数值 clamp 到 `min/max`，显示为 `12 · 熟悉`。
+
+变量会按 chat 持久化（`chat.variables`），并注入到 Prompt 的 `【当前变量】` 区；
+世界书/Prompt 里可以用 `{{getvar::affection}}`（或 `{{getglobalvar::affection}}`）取当前值。
+状态栏行会带 `key`（变量 id），App 仍按 `label/value` 展示。
+
+## 媒体免鉴权说明
+
+`GET /tavern/media/:name` **不校验 DSH Cookie**，这是刻意的：App 的 `Image`/音频组件加载媒体 URL 时无法附带 Cookie。补偿措施：
+
+- 文件名是 `m_<uuid>.png|mp3`，不可枚举；
+- 路由只允许这个文件名格式，不接受目录穿越；
+- 插件不提供媒体目录列表接口；
+- API Key 不落盘、不写日志。
+
+如果以后 App 能带 Cookie 加载媒体，再给这个路由补 `admit()`。
+
+## 未实现（后续）
+
+- CHARX 资源、PNG V3 导出（当前导出只写 `chara`）
+- 旧版 DSH 没有 `llm` 服务时仍退回 Agent 的单条 user 路径
+- 世界书 `useGroupScoring`、向量匹配
+- 完整 STscript（`/if` `/while` `/gen` `/send` `/cut`）与 Quick Replies UI
+- 群聊回合制、静音、回复顺序策略（暂停投入）
+- 上下文截断的 UI 提示（服务端已返回 `historyTrimmed` / `contextTruncated`）
+- 每 chat JSONL + 写锁 + 版本迁移
+- 状态栏规则的 App 可视化编辑器（当前写入卡片扩展或 `status_schema` 世界书条目）
+
+## 明确不做
+
+- **Persona Lorebook**：App 以角色卡绑定世界书，世界书里可以直接写 user 信息，不需要再给 persona 绑一本。
+- **per-chat lore（独立 chat 世界书）**：对话继承角色卡绑定的世界书，同一角色换聊天不需要另一套 lore。
+- **per-character model / preset**：统一使用 DSH 默认模型与全局 Prompt/生成设置，不做角色级覆盖。
 
 ## 数据
 
@@ -54,6 +177,7 @@ POST   /tavern/characters/import
 POST   /tavern/characters/parse
 POST   /tavern/characters/:id/avatar
 GET    /tavern/characters/:id/avatar
+GET    /tavern/characters/:id/export       ?format=json|png
 GET    /tavern/characters/:id
 PATCH  /tavern/characters/:id
 DELETE /tavern/characters/:id
@@ -64,6 +188,7 @@ PATCH  /tavern/worlds/:id
 DELETE /tavern/worlds/:id
 GET    /tavern/chats
 POST   /tavern/chats
+POST   /tavern/chats/group
 GET    /tavern/chats/:id
 DELETE /tavern/chats/:id
 POST   /tavern/chats/:id/messages
@@ -71,12 +196,62 @@ POST   /tavern/chats/:id/messages/stream
 PATCH  /tavern/chats/:id/messages/:mid
 DELETE /tavern/chats/:id/messages/:mid
 POST   /tavern/chats/:id/regenerate
+POST   /tavern/chats/:id/swipe
+POST   /tavern/chats/:id/swipe/select
+POST   /tavern/chats/:id/swipe/delete
+POST   /tavern/chats/:id/continue
+POST   /tavern/chats/:id/impersonate
+POST   /tavern/chats/:id/script
+POST   /tavern/backup/export
+POST   /tavern/backup/import
 POST   /tavern/chats/:id/branch
 GET    /tavern/chats/:id/export
 GET    /tavern/media/:name
 POST   /tavern/worlds/import
 POST   /tavern/prompt/preview
 ```
+
+## 数据备份
+
+`POST /tavern/backup/export` 接收 `characterIds` / `chatIds` / `worldIds`，返回：
+
+```json
+{
+  "format": "hdsh-tavern-backup",
+  "version": 1,
+  "exportedAt": 0,
+  "characters": [],
+  "worlds": [],
+  "chats": []
+}
+```
+
+`POST /tavern/backup/import` 接收同样的 bundle，导入时重新生成 id，不会覆盖本机数据；
+聊天按角色映射重建，缺角色的聊天会跳过。App 的「设置 → 数据与备份」会额外带上 `settings`，
+但**不会导出百炼 API Key 和本机头像路径**。
+
+## Automation ID 与 STscript 子集
+
+`status_schema.automations` 把世界书条目的 `automationId` 映射到动作：
+
+```json
+{
+  "automations": {
+    "enter_tavern": [
+      { "action": "addvar", "key": "affection", "value": 2 },
+      { "action": "inject", "id": "tavern_mood", "text": "酒馆里很吵。", "depth": 4, "role": 0 }
+    ],
+    "night_event": {
+      "action": "script",
+      "script": "/addvar key=affection 1 | /inject id=night 夜深了。"
+    }
+  }
+}
+```
+
+支持动作：`setvar` / `addvar` / `incvar` / `decvar` / `inject` / `script`。
+脚本子集：`/pass` `/echo` `/setvar` `/addvar` `/incvar` `/decvar` `/getvar` `/flushvar` `/inject`；
+不支持 `/if` `/while` `/gen` `/send` / Quick Replies 等。也可以直接调用 `POST /tavern/chats/:id/script`。
 
 ## 语音与生图
 
@@ -91,7 +266,8 @@ POST   /tavern/prompt/preview
 - API Key 由 App 在每次请求里带上（`apiKey`），插件不落盘、不写日志；没带 Key 时只返回文字；
 - 每个角色每天的次数由请求里的 `imageLimit` / `voiceLimit` 控制（默认 3 / 5，上限 50）；
 - 媒体文件保存在 `<DSH_HOME>/tavern/media/`，通过 `GET /tavern/media/:name` 取回；
-- 流式对话里 `<media_image>` / `<media_voice>` 不会当成正文吐给 App。
+- 流式对话里 `<media_image>` / `<media_voice>` 不会当成正文吐给 App；
+- `autoMedia` 控制自然语言触发：`off` 只认标签，`explicit` 认“发张图/来段语音/看看你”，`auto` 还会识别“你现在的样子”以及角色回复里的“发来一张照片/一段语音”等叙述；默认 `explicit`，可在 App「语音与图片」页切换。
 
 ## 安装
 
