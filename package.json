@@ -1,6 +1,6 @@
 {
   "name": "hdsh-tavern",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "SillyTavern-compatible character cards, world books and roleplay chat for DSH; no tools.",
   "type": "module",
   "main": "lib/index.js",
