@@ -9,7 +9,7 @@
 - API：`/tavern/*`，不复用 `/companion/*`。
 - 人格：角色卡和世界书只作为上下文，不是可执行指令。
 
-## 0.4.1 已实现
+## 0.4.3 已实现
 
 - 角色卡：列表、创建、编辑、删除；JSON（V1/V2/V3）、PNG（tEXt `ccv3`/`chara`）、CHARX/BYAF（ZIP）
 - 角色卡内嵌 `character_book` 自动转世界书并随角色删除
@@ -44,7 +44,53 @@
 - 消息：编辑、删除、从消息创建分支（保留群聊身份与状态栏/媒体元数据）、导出 Markdown/JSON
 - 媒体：生图、语音；支持标签触发、明确要求触发和自然对话感知（`off` / `explicit` / `auto`）；`/tavern/media/*` 免 Cookie（见下）
 - 数据：`<DSH_HOME>/tavern/data.json` 原子写；损坏文件自动备份为 `data.json.corrupt-*`；支持 JSON 备份（角色卡 / 聊天 / 世界书 / 设置）
+- **上下文压缩（剧情记忆）**：最近 `historyLimit` 条逐字保留，更早的折叠成摘要存进 `chat.memory`，每轮注入 system 的 `【剧情记忆】`；支持手动 / 自动、增量合并、分块摘要、编辑与清空
 - 同一聊天写入串行化，避免并发请求交错
+
+## 上下文压缩（剧情记忆）
+
+规则：
+
+- `historyLimit`（App 设置，2~100，数的是**条**消息）之内的历史逐字保留；
+- 更早的消息按块送摘要模型，合并成一段滚动摘要，存 `chat.memory`；
+- 每轮拼 prompt 时摘要进 system（Prompt 顺序里的 `memory` 段，位于世界书之后、示例之前），逐字历史从摘要覆盖点之后开始；
+- 原始消息一条不删，`data.json` 仍是完整记录；摘要只是发给模型的视图；
+- 压缩后重置该对话的隐藏 Agent 会话，下一轮才会以「system + 摘要 + 尾部」重建上下文。
+
+接口：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/tavern/chats/:id/compact` | 手动压缩一次；body 可带 `keep`（临时逐字条数）、`userName` |
+| `GET` | `/tavern/chats/:id/memory` | 当前摘要、覆盖消息 id、压缩日志、可折叠条数；可带 `?historyLimit=N` 按 App 的设置估算逐字窗口 |
+| `PUT` | `/tavern/chats/:id/memory` | 手动改摘要（`{ summary }`，空串等于清除） |
+| `DELETE` | `/tavern/chats/:id/memory` | 清除记忆，回到纯 `historyLimit` 截断 |
+
+自动压缩配置（`cordis.patch.yml`，都可省略）：
+
+```yaml
+- id: tavern
+  name: hdsh-tavern
+  config:
+    enabled: true
+    memory:
+      auto: true               # 关掉就只保留手动压缩
+      ratio: 0.75              # prompt 超过预算的 75% 时提前压缩
+      minFoldMessages: 8       # 少于这么多条不压
+      foldTriggerMessages: 24  # 攒够这么多条未折叠消息就压一次
+      summaryMaxTokens: 1200   # 单次摘要输出上限
+      chunkMessages: 24        # 首次全量压缩时每块的条数
+      chunkChars: 12000        # 每块的字符上限
+      budgetTokens: 0          # 0 = 用 App 的「上下文总 Token」或模型窗口推算
+```
+
+说明：
+
+- 预算优先级：App 传来的 `contextTokens` > `budgetTokens` > 模型窗口 − 输出上限 − 8k > 24000；
+- 摘要模型优先用 `ctx.llm.stream`（不产生会话）；没有 `llm` 服务的旧版 DSH 会退回固定 id 的隐藏 Agent（`tavern-mem-<chatId>`，每个对话一条）；
+- 摘要调用失败不会阻塞聊天：保留旧摘要，下一轮再试；
+- 手动压缩必须持有该 chat 的写入锁，和发消息串行。该功能只处理单聊与群聊的同一套 `chat.messages`，群聊摘要保留 `角色名：` 前缀。
+
 
 ## 与 SillyTavern 仍有的差异
 

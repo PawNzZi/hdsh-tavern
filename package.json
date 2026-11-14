@@ -1,6 +1,6 @@
 {
   "name": "hdsh-tavern",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "SillyTavern-compatible character cards, world books and roleplay chat for DSH; no tools.",
   "type": "module",
   "main": "lib/index.js",
@@ -26,7 +26,7 @@
   "license": "MIT",
   "dependencies": {},
   "scripts": {
-    "test": "node test/smoke.mjs && node test/worldbook.mjs && node test/status.mjs && node test/extras.mjs && node test/media-intent.mjs && node test/backup.mjs && node test/routes.mjs"
+    "test": "node test/smoke.mjs && node test/worldbook.mjs && node test/status.mjs && node test/extras.mjs && node test/media-intent.mjs && node test/backup.mjs && node test/routes.mjs && node test/memory.mjs && node test/memory-routes.mjs"
   },
   "dsh": {
     "bundle": {
